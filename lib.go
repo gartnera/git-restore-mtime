@@ -25,7 +25,7 @@ func WithMaxDepth(depth int) ManagerOptionT {
 }
 
 type Manager struct {
-	maxCommitTime map[string]time.Time
+	modTimes      map[string]time.Time
 	repo          *git.Repository
 	repoRoot      string
 	ignore        *ignore.GitIgnore
@@ -47,7 +47,7 @@ func newManager(repo *git.Repository, repoRoot string, opts ...ManagerOptionT) *
 		slog.Warn("failed to read .gitignore", "err", err)
 	}
 	m := &Manager{
-		maxCommitTime: make(map[string]time.Time),
+		modTimes:      make(map[string]time.Time),
 		repo:          repo,
 		repoRoot:      repoRoot,
 		ignore:        i,
@@ -61,11 +61,11 @@ func newManager(repo *git.Repository, repoRoot string, opts ...ManagerOptionT) *
 }
 
 func (m *Manager) updateTimeIfGreater(path string, commitTime time.Time) {
-	currentTime, ok := m.maxCommitTime[path]
+	currentTime, ok := m.modTimes[path]
 	if ok && currentTime.After(commitTime) {
 		return
 	}
-	m.maxCommitTime[path] = commitTime
+	m.modTimes[path] = commitTime
 }
 
 func (m *Manager) handleDiffPath(path string, commitTime time.Time) {
@@ -79,7 +79,7 @@ func (m *Manager) handleDiffPath(path string, commitTime time.Time) {
 	m.handleDiffPath(dirName, commitTime)
 }
 
-func (m *Manager) PopulateMaxCommitTimes() error {
+func (m *Manager) SetFromGit() error {
 	head, err := m.repo.Head()
 	if err != nil {
 		return fmt.Errorf("get head: %w", err)
@@ -94,14 +94,24 @@ func (m *Manager) PopulateMaxCommitTimes() error {
 		if err != nil {
 			return fmt.Errorf("get current tree: %w", err)
 		}
+		currentCommitTime := currentCommit.Committer.When
 		parentCommit, err := currentCommit.Parent(0)
 		if err != nil {
-			if err == object.ErrParentNotFound {
-				// TODO: handle root commit (set all files mtime)
-				slog.Debug("got root commit", "currentCommit", currentCommit.Hash)
-				break
+			if err != object.ErrParentNotFound {
+				return fmt.Errorf("get parent commit: %w", err)
 			}
-			return fmt.Errorf("get parent commit: %w", err)
+			slog.Debug("got root commit", "currentCommit", currentCommit.Hash)
+			// set all files in tree to current commit time
+			fileIter := currentTree.Files()
+			for {
+				file, err := fileIter.Next()
+				if err != nil {
+					slog.Debug("file iter done", "err", err)
+					break
+				}
+				m.handleDiffPath(file.Name, currentCommitTime)
+			}
+			break
 		}
 		parentTree, err := parentCommit.Tree()
 		if err != nil {
@@ -113,17 +123,14 @@ func (m *Manager) PopulateMaxCommitTimes() error {
 			return fmt.Errorf("diff tree: %w", err)
 		}
 
-		commitTime := currentCommit.Committer.When
-
-		if commitTime.Before(m.minCommitTime) {
-			m.minCommitTime = commitTime
-		}
-
 		for _, change := range changes {
 			path := change.To.Name
-			m.handleDiffPath(path, commitTime)
+			m.handleDiffPath(path, currentCommitTime)
 		}
 		currentCommit = parentCommit
+		if currentCommitTime.Before(m.minCommitTime) {
+			m.minCommitTime = currentCommitTime
+		}
 		depth += 1
 		if depth >= m.maxDepth {
 			slog.Info("reached max depth", "depth", depth)
@@ -149,7 +156,7 @@ func (m *Manager) UpdateFilesystem() error {
 		if relPath == "." {
 			return nil
 		}
-		lastCommitTime, ok := m.maxCommitTime[relPath]
+		lastCommitTime, ok := m.modTimes[relPath]
 		if !ok {
 			if m.maxDepth == math.MaxInt64 {
 				slog.Warn("path not found in commit history", "path", relPath)
@@ -174,8 +181,8 @@ func (m *Manager) UpdateFilesystem() error {
 	return err
 }
 
-func (m *Manager) Run() error {
-	err := m.PopulateMaxCommitTimes()
+func (m *Manager) RunDefault() error {
+	err := m.SetFromGit()
 	if err != nil {
 		return fmt.Errorf("populate max commit times: %w", err)
 	}

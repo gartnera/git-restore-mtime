@@ -10,7 +10,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = m.Run()
+	err = m.RunDefault()
 	if err != nil {
 		log.Fatal(err)
 	}
