@@ -11,9 +11,23 @@ import (
 	"time"
 
 	ignore "github.com/crackcomm/go-gitignore"
+	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/filesystem"
 )
+
+// fastGitOpen opens the git repository with some extra options
+// for faster access
+func fastGitOpen(path string) (*git.Repository, error) {
+	dotGitFs := osfs.New(filepath.Join(path, ".git"))
+	s := filesystem.NewStorageWithOptions(dotGitFs, cache.NewObjectLRUDefault(), filesystem.Options{
+		ExclusiveAccess: true,
+		KeepDescriptors: true,
+	})
+	return git.Open(s, dotGitFs)
+}
 
 type ManagerOptionT func(*Manager)
 
@@ -34,7 +48,7 @@ type Manager struct {
 }
 
 func NewManagerFromPath(repoRoot string, opts ...ManagerOptionT) (*Manager, error) {
-	r, err := git.PlainOpen(repoRoot)
+	r, err := fastGitOpen(repoRoot)
 	if err != nil {
 		return nil, err
 	}
