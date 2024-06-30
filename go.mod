@@ -37,4 +37,4 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
-replace github.com/go-git/go-git/v5 => github.com/gartnera/go-git/v5 v5.0.0-20240630012603-6848db7be2c2
+replace github.com/go-git/go-git/v5 => github.com/gartnera/go-git/v5 v5.0.0-20240630190054-7d1a4d1c0c14
