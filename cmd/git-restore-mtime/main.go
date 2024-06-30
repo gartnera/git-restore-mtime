@@ -11,6 +11,7 @@ import (
 const (
 	maxDepthArg   = "max-depth"
 	cpuProfileArg = "cpu-profile"
+	memProfileArg = "mem-profile"
 )
 
 func init() {
@@ -19,6 +20,7 @@ func init() {
 
 	persistentFlags := rootCmd.PersistentFlags()
 	persistentFlags.String(cpuProfileArg, "", "path to write pprof cpu profile")
+	persistentFlags.String(memProfileArg, "", "path to write pprof memory profile")
 }
 
 var rootCmd = &cobra.Command{
@@ -38,6 +40,15 @@ var rootCmd = &cobra.Command{
 	},
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 		pprof.StopCPUProfile()
+		memProfile, _ := cmd.Flags().GetString(memProfileArg)
+		if memProfile != "" {
+			f, err := os.Create(memProfile)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return pprof.WriteHeapProfile(f)
+		}
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
